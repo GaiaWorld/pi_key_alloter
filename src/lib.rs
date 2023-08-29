@@ -302,9 +302,9 @@ pub struct KeyAlloter {
 
 impl KeyAlloter {
     /// 构造方法
-    pub fn new(max: u32) -> Self {
+    pub fn new(start: u32) -> Self {
         KeyAlloter {
-            max: ShareU32::new(max),
+            max: ShareU32::new(start),
             recycled: Default::default(),
         }
     }

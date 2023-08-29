@@ -24,7 +24,7 @@ assert_eq!(1, k.index());
 assert_eq!(1, k.version());
 ```
 
-The arr can be shared across threads with an `Arc`:
+The alloter can be shared across threads with an `Arc`:
 
 ```rust
 use std::sync::Arc;
