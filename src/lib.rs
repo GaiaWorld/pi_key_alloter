@@ -70,7 +70,7 @@ impl Default for KeyData {
 }
 impl Null for KeyData {
     fn null() -> Self {
-        Self::new(u32::null(), 1)
+        Self::new(u32::null(), 0)
     }
 
     fn is_null(&self) -> bool {
@@ -146,8 +146,8 @@ pub fn is_older_version(a: u32, b: u32) -> bool {
 /// fn main() {
 ///     let users = KeyAlloter::new(0);
 ///     let rockets = KeyAlloter::new(0);
-///     let bob: UserKey = users.alloc().into();
-///     let apollo: RocketKey = rockets.alloc().into();
+///     let bob: UserKey = users.alloc(1).into();
+///     let apollo: RocketKey = rockets.alloc(1).into();
 ///     println!("users: {:?} rocket: {:?}", bob, apollo);
 /// }
 /// ```
@@ -260,14 +260,7 @@ mod serialize {
         where
             D: Deserializer<'de>,
         {
-            let mut ser_key: SerKey = Deserialize::deserialize(deserializer)?;
-
-            // Ensure a.is_null() && b.is_null() implies a == b.
-            if ser_key.idx == core::u32::MAX {
-                ser_key.version = 1;
-            }
-
-            ser_key.version |= 1; // Ensure version is odd.
+            let ser_key: SerKey = Deserialize::deserialize(deserializer)?;
             Ok(Self::new(ser_key.idx, ser_key.version))
         }
     }
@@ -302,19 +295,19 @@ pub struct KeyAlloter {
 
 impl KeyAlloter {
     /// 构造方法
-    pub fn new(start: u32) -> Self {
+    pub fn new(start_index: u32) -> Self {
         KeyAlloter {
-            max: ShareU32::new(start),
+            max: ShareU32::new(start_index),
             recycled: Default::default(),
         }
     }
 
-    /// 分配一个Key
-    pub fn alloc(&self) -> KeyData {
-        // 如果recycled中存在回收Key，将从recycled中弹出一个Key，否则，分配的Key值为`max`,并且`max`会自增1
+    /// 分配一个Key，如果recycled中存在回收Key，将从recycled中弹出一个Key，并且版本增加指定的值。
+    /// 否则，分配的Key值为`max`,并且`max`会自增1，版本初始值为指定的版本增加值
+    pub fn alloc(&self, version_incr: u32) -> KeyData {
         match self.recycled.pop() {
-            Some(r) => KeyData::new(r.idx, r.version + 1),
-            None => KeyData::new(self.max.fetch_add(1, Ordering::Relaxed), 1),
+            Some(r) => KeyData::new(r.idx, r.version + version_incr),
+            None => KeyData::new(self.max.fetch_add(1, Ordering::Relaxed), version_incr),
         }
     }
 
@@ -415,18 +408,35 @@ mod tests {
         assert!(is_older(u32::MAX, 0));
     }
     #[test]
+    fn test_new_key_type() {
+        use crate::*;
+        new_key_type! {
+            // A private key type.
+            struct RocketKey;
+
+            // A public key type with a doc comment.
+            /// Key for the user.
+            pub struct UserKey;
+        }
+        let users = KeyAlloter::new(0);
+        let rockets = KeyAlloter::new(0);
+        let bob: UserKey = users.alloc(1).into();
+        let apollo: RocketKey = rockets.alloc(1).into();
+        println!("users: {:?} rocket: {:?}", bob, apollo);
+    }
+    #[test]
     fn test_key() {
         use crate::*;
 
         let alloter = KeyAlloter::new(0);
-        let k = alloter.alloc();
+        let k = alloter.alloc(1);
         assert_eq!(0, k.index());
         assert_eq!(1, k.version());
         alloter.recycle(k);
-        let k = alloter.alloc();
+        let k = alloter.alloc(1);
         assert_eq!(0, k.index());
         assert_eq!(2, k.version());
-        let k = alloter.alloc();
+        let k = alloter.alloc(1);
         assert_eq!(1, k.index());
         assert_eq!(1, k.version());
     }
@@ -442,7 +452,7 @@ mod tests {
                 let alloter = alloter.clone();
 
                 std::thread::spawn(move || {
-                    let _ = alloter.alloc();
+                    let _ = alloter.alloc(1);
                 })
             })
             .collect::<Vec<_>>();
@@ -451,7 +461,7 @@ mod tests {
         for thread in threads {
             thread.join().unwrap();
         }
-        let k = alloter.alloc();
+        let k = alloter.alloc(1);
         assert_eq!(6, k.index());
         assert_eq!(1, k.version());
     }
