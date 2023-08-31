@@ -301,7 +301,10 @@ impl KeyAlloter {
             recycled: Default::default(),
         }
     }
-
+    /// 已分配的Key个数
+    pub fn len(&self) -> usize {
+        self.max.load(Ordering::Relaxed) as usize - self.recycled.len()
+    }
     /// 分配一个Key，如果recycled中存在回收Key，将从recycled中弹出一个Key，并且版本增加指定的值。
     /// 否则，分配的Key值为`max`,并且`max`会自增1，版本初始值为指定的版本增加值
     pub fn alloc(&self, version_incr: u32) -> KeyData {
@@ -310,22 +313,25 @@ impl KeyAlloter {
             None => KeyData::new(self.max.fetch_add(1, Ordering::Relaxed), version_incr),
         }
     }
-
+    
     /// 回收一个Key
     pub fn recycle(&self, key: KeyData) {
         self.recycled.push(key);
     }
-
+    /// 是否没有回收的key
+    pub fn is_recycle_empty(&self) -> bool {
+        self.recycled.is_empty()
+    }
     /// 已回收的Key个数
-    pub fn recycle_len(&self) -> u32 {
-        self.recycled.len() as u32
+    pub fn recycle_len(&self) -> usize {
+        self.recycled.len()
     }
 
     /// 当前已分配Key的最大值
     pub fn max(&self) -> u32 {
         self.max.load(Ordering::Relaxed)
     }
-    /// 整理，返回整理迭代器，迭代器返回(当前最大值, 空位)，外部可利用该信息进行数据交换，让分配的Key和Value连续
+    /// 外部必须保证没有其他线程分配Key，整理，返回整理迭代器，迭代器返回(当前最大值, 空位)，外部可利用该信息进行数据交换，让分配的Key和Value连续
     pub fn collect(&self) -> Drain {
         let max = self.max.load(Ordering::Relaxed);
         Drain {
@@ -335,6 +341,7 @@ impl KeyAlloter {
         }
     }
 }
+
 #[derive(Debug)]
 pub struct Drain<'a> {
     max: u32,
@@ -354,7 +361,7 @@ impl<'a> Iterator for Drain<'a> {
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.alloter.recycle_len() as usize;
+        let len = self.alloter.recycled.len();
         (len, Some(len))
     }
 }
