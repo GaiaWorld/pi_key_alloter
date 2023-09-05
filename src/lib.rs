@@ -332,11 +332,12 @@ impl KeyAlloter {
         self.max.load(Ordering::Relaxed)
     }
     /// 外部必须保证没有其他线程分配Key，整理，返回整理迭代器，迭代器返回(当前最大值, 空位)，外部可利用该信息进行数据交换，让分配的Key和Value连续
-    pub fn collect(&self) -> Drain {
+    pub fn collect(&self, version_incr: u32) -> Drain {
         let max = self.max.load(Ordering::Relaxed);
         Drain {
             max,
             index: max,
+            version_incr,
             alloter: &self,
         }
     }
@@ -346,19 +347,20 @@ impl KeyAlloter {
 pub struct Drain<'a> {
     max: u32,
     index: u32,
+    version_incr: u32,
     alloter: &'a KeyAlloter,
 }
 impl<'a> Iterator for Drain<'a> {
     type Item = (u32, KeyData);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.alloter.recycled.pop() {
-            Some(r) => {
-                self.index -= 1;
-                Some((self.index, r))
+        while let Some(r) = self.alloter.recycled.pop() {
+            self.index -= 1;
+            if self.index != r.idx {
+                return Some((self.index, KeyData::new(r.idx, r.version + self.version_incr)))
             }
-            None => None,
         }
+        None
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         let len = self.alloter.recycled.len();
