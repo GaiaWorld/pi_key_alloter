@@ -104,7 +104,7 @@ pub unsafe trait Key:
     /// # Examples
     ///
     /// ```
-    /// # use pi_id_alloter::*;
+    /// # use pi_key_alloter::*;
     /// new_key_type! { struct MyKey; }
     /// let dk = DefaultKey::null();
     /// let mk = MyKey::null();
@@ -133,7 +133,7 @@ pub fn is_older_version(a: u32, b: u32) -> bool {
 /// # Examples
 ///
 /// ```
-/// # use pi_id_alloter::*;
+/// # use pi_key_alloter::*;
 /// new_key_type! {
 ///     // A private key type.
 ///     struct RocketKey;
@@ -303,14 +303,14 @@ impl KeyAlloter {
     }
     /// 已分配的Key个数
     pub fn len(&self) -> usize {
-        self.max.load(Ordering::Relaxed) as usize - self.recycled.len()
+        self.max.load(Ordering::Acquire) as usize - self.recycled.len()
     }
     /// 分配一个Key，如果recycled中存在回收Key，将从recycled中弹出一个Key，并且版本增加指定的值。
     /// 否则，分配的Key值为`max`,并且`max`会自增1，版本初始值为指定的版本增加值
     pub fn alloc(&self, version_incr: u32) -> KeyData {
         match self.recycled.pop() {
             Some(r) => KeyData::new(r.idx, r.version + version_incr),
-            None => KeyData::new(self.max.fetch_add(1, Ordering::Relaxed), version_incr),
+            None => KeyData::new(self.max.fetch_add(1, Ordering::AcqRel), version_incr),
         }
     }
     
@@ -329,11 +329,11 @@ impl KeyAlloter {
 
     /// 当前已分配Key的最大值
     pub fn max(&self) -> u32 {
-        self.max.load(Ordering::Relaxed)
+        self.max.load(Ordering::Acquire)
     }
     /// 外部必须保证没有其他线程分配Key，整理，返回整理迭代器，迭代器返回(当前最大值, 空位)，外部可利用该信息进行数据交换，让分配的Key和Value连续
     pub fn collect(&self, version_incr: u32) -> Drain {
-        let max = self.max.load(Ordering::Relaxed);
+        let max = self.max.load(Ordering::Acquire);
         Drain {
             max,
             index: max,
