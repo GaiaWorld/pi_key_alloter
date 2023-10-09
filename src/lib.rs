@@ -77,6 +77,10 @@ impl Null for KeyData {
         self.idx.is_null()
     }
 }
+
+pub unsafe fn key_data(idx: u32, version: u32) -> KeyData {
+    KeyData::new(idx, version)
+}
 /// it is suggested to have a unique key type for each slot
 /// map. You can create new key types using [`new_key_type!`], which makes a
 /// new type identical to [`DefaultKey`], just with a different name.
@@ -86,7 +90,7 @@ impl Null for KeyData {
 /// The internal unsafe code relies on this, therefore this trait is `unsafe` to
 /// implement. It is strongly suggested to simply use [`new_key_type!`] instead
 /// of implementing this trait yourself.
-pub unsafe trait Key:
+pub trait Key:
     From<KeyData>
     + Copy
     + Clone
@@ -112,7 +116,36 @@ pub unsafe trait Key:
     /// ```
     fn data(&self) -> KeyData;
 }
-
+impl From<KeyData> for usize {
+    fn from(k: KeyData) -> Self {
+        k.idx as usize
+    }
+}
+impl Key for usize {
+    fn data(&self) -> KeyData {
+        KeyData::new(*self as u32, 0)
+    }
+}
+impl From<KeyData> for u32 {
+    fn from(k: KeyData) -> Self {
+        k.idx
+    }
+}
+impl Key for u32 {
+    fn data(&self) -> KeyData {
+        KeyData::new(*self, 0)
+    }
+}
+impl From<KeyData> for u64 {
+    fn from(k: KeyData) -> Self {
+        k.as_ffi()
+    }
+}
+impl Key for u64 {
+    fn data(&self) -> KeyData {
+        KeyData::from_ffi(*self)
+    }
+}
 /// Returns if a is an older version than b, taking into account wrapping of
 /// versions.
 pub fn is_older_version(a: u32, b: u32) -> bool {
@@ -176,7 +209,7 @@ macro_rules! new_key_type {
                 self.0.is_null()
             }
         }
-        unsafe impl $crate::Key for $name {
+        impl $crate::Key for $name {
             fn data(&self) -> $crate::KeyData {
                 self.0
             }
@@ -306,14 +339,14 @@ impl KeyAlloter {
         self.max.load(Ordering::Acquire) as usize - self.recycled.len()
     }
     /// 分配一个Key，如果recycled中存在回收Key，将从recycled中弹出一个Key，并且版本增加指定的值。
-    /// 否则，分配的Key值为`max`,并且`max`会自增1，版本初始值为指定的版本增加值
-    pub fn alloc(&self, version_incr: u32) -> KeyData {
+    /// 否则，分配的Key值为`max`,并且`max`会自增1，并指定的版本初始值
+    pub fn alloc(&self, version_incr: u32, version_init: u32) -> KeyData {
         match self.recycled.pop() {
             Some(r) => KeyData::new(r.idx, r.version + version_incr),
-            None => KeyData::new(self.max.fetch_add(1, Ordering::AcqRel), version_incr),
+            None => KeyData::new(self.max.fetch_add(1, Ordering::AcqRel), version_init),
         }
     }
-    
+
     /// 回收一个Key
     pub fn recycle(&self, key: KeyData) {
         self.recycled.push(key);
@@ -357,7 +390,10 @@ impl<'a> Iterator for Drain<'a> {
         while let Some(r) = self.alloter.recycled.pop() {
             self.index -= 1;
             if self.index != r.idx {
-                return Some((self.index, KeyData::new(r.idx, r.version + self.version_incr)))
+                return Some((
+                    self.index,
+                    KeyData::new(r.idx, r.version + self.version_incr),
+                ));
             }
         }
         None
@@ -372,7 +408,7 @@ impl<'a> Drop for Drain<'a> {
         let _ = self
             .alloter
             .max
-            .compare_exchange(self.max, self.index, Ordering::Relaxed, Ordering::Relaxed)
+            .compare_exchange(self.max, self.index, Ordering::Release, Ordering::Acquire)
             .unwrap();
     }
 }
@@ -415,6 +451,7 @@ mod tests {
         assert!(is_older(0, 1 << 31));
         assert!(!is_older(0, (1 << 31) + 1));
         assert!(is_older(u32::MAX, 0));
+        assert!(is_older((1 << 31) + 1, 1));
     }
     #[test]
     fn test_new_key_type() {
@@ -429,8 +466,8 @@ mod tests {
         }
         let users = KeyAlloter::new(0);
         let rockets = KeyAlloter::new(0);
-        let bob: UserKey = users.alloc(1).into();
-        let apollo: RocketKey = rockets.alloc(1).into();
+        let bob: UserKey = users.alloc(1, 1).into();
+        let apollo: RocketKey = rockets.alloc(1, 1).into();
         println!("users: {:?} rocket: {:?}", bob, apollo);
     }
     #[test]
@@ -438,14 +475,14 @@ mod tests {
         use crate::*;
 
         let alloter = KeyAlloter::new(0);
-        let k = alloter.alloc(1);
+        let k = alloter.alloc(1, 1);
         assert_eq!(0, k.index());
         assert_eq!(1, k.version());
         alloter.recycle(k);
-        let k = alloter.alloc(1);
+        let k = alloter.alloc(1, 1);
         assert_eq!(0, k.index());
         assert_eq!(2, k.version());
-        let k = alloter.alloc(1);
+        let k = alloter.alloc(1, 1);
         assert_eq!(1, k.index());
         assert_eq!(1, k.version());
     }
@@ -461,7 +498,7 @@ mod tests {
                 let alloter = alloter.clone();
 
                 std::thread::spawn(move || {
-                    let _ = alloter.alloc(1);
+                    let _ = alloter.alloc(1, 1);
                 })
             })
             .collect::<Vec<_>>();
@@ -470,7 +507,7 @@ mod tests {
         for thread in threads {
             thread.join().unwrap();
         }
-        let k = alloter.alloc(1);
+        let k = alloter.alloc(1, 1);
         assert_eq!(6, k.index());
         assert_eq!(1, k.version());
     }
