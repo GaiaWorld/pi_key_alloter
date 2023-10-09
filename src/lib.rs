@@ -115,6 +115,7 @@ pub trait Key:
     /// assert_eq!(dk.data(), mk.data());
     /// ```
     fn data(&self) -> KeyData;
+    fn index(&self) -> usize;
 }
 impl From<KeyData> for usize {
     fn from(k: KeyData) -> Self {
@@ -124,6 +125,9 @@ impl From<KeyData> for usize {
 impl Key for usize {
     fn data(&self) -> KeyData {
         KeyData::new(*self as u32, 0)
+    }
+    fn index(&self) -> usize {
+        *self
     }
 }
 impl From<KeyData> for u32 {
@@ -135,6 +139,9 @@ impl Key for u32 {
     fn data(&self) -> KeyData {
         KeyData::new(*self, 0)
     }
+    fn index(&self) -> usize {
+        *self as usize
+    }
 }
 impl From<KeyData> for u64 {
     fn from(k: KeyData) -> Self {
@@ -144,6 +151,9 @@ impl From<KeyData> for u64 {
 impl Key for u64 {
     fn data(&self) -> KeyData {
         KeyData::from_ffi(*self)
+    }
+    fn index(&self) -> usize {
+        *self as usize
     }
 }
 /// Returns if a is an older version than b, taking into account wrapping of
@@ -212,6 +222,9 @@ macro_rules! new_key_type {
         impl $crate::Key for $name {
             fn data(&self) -> $crate::KeyData {
                 self.0
+            }
+            fn index(&self) -> usize{
+                self.0.idx as usize
             }
         }
 
