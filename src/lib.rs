@@ -102,6 +102,7 @@ pub trait Key:
     + core::hash::Hash
     + core::fmt::Debug
     + pi_null::Null
+    + 'static
 {
     /// Gets the [`KeyData`] stored in this key.
     ///
