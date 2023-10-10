@@ -223,8 +223,8 @@ macro_rules! new_key_type {
             fn data(&self) -> $crate::KeyData {
                 self.0
             }
-            fn index(&self) -> usize{
-                self.0.idx as usize
+            fn index(&self) -> usize {
+                self.0.index() as usize
             }
         }
 
