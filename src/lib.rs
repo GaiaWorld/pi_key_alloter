@@ -350,14 +350,15 @@ impl KeyAlloter {
     }
     /// 已分配的Key个数
     pub fn len(&self) -> usize {
-        self.max.load(Ordering::Acquire) as usize - self.recycled.len()
+        let len = self.recycled.len();
+        self.max.load(Ordering::Relaxed) as usize - len
     }
     /// 分配一个Key，如果recycled中存在回收Key，将从recycled中弹出一个Key，并且版本增加指定的值。
     /// 否则，分配的Key值为`max`,并且`max`会自增1，并指定的版本初始值
     pub fn alloc(&self, version_incr: u32, version_init: u32) -> KeyData {
         match self.recycled.pop() {
             Some(r) => KeyData::new(r.idx, r.version + version_incr),
-            None => KeyData::new(self.max.fetch_add(1, Ordering::AcqRel), version_init),
+            None => KeyData::new(self.max.fetch_add(1, Ordering::Relaxed), version_init),
         }
     }
 
@@ -376,11 +377,11 @@ impl KeyAlloter {
 
     /// 当前已分配Key的最大值
     pub fn max(&self) -> u32 {
-        self.max.load(Ordering::Acquire)
+        self.max.load(Ordering::Relaxed)
     }
     /// 外部必须保证没有其他线程分配Key，整理，返回整理迭代器，迭代器返回(当前最大值, 空位)，外部可利用该信息进行数据交换，让分配的Key和Value连续
     pub fn collect(&self, version_incr: u32) -> Drain {
-        let max = self.max.load(Ordering::Acquire);
+        let max = self.max.load(Ordering::Relaxed);
         Drain {
             max,
             index: max,
@@ -422,7 +423,7 @@ impl<'a> Drop for Drain<'a> {
         let _ = self
             .alloter
             .max
-            .compare_exchange(self.max, self.index, Ordering::Release, Ordering::Acquire)
+            .compare_exchange(self.max, self.index, Ordering::Relaxed, Ordering::Relaxed)
             .unwrap();
     }
 }
