@@ -1,6 +1,6 @@
 [package]
 name = "pi_key_alloter"
-version = "0.4.5"
+version = "0.4.6"
 authors = ["suncy <530739162@qq.com>"]
 edition = "2021"
 description = "lock free Key(idx:u32, version:u32) alloter"

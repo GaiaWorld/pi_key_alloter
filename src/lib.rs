@@ -131,19 +131,6 @@ impl Key for usize {
         *self
     }
 }
-impl From<KeyData> for u32 {
-    fn from(k: KeyData) -> Self {
-        k.idx
-    }
-}
-impl Key for u32 {
-    fn data(&self) -> KeyData {
-        KeyData::new(*self, 0)
-    }
-    fn index(&self) -> usize {
-        *self as usize
-    }
-}
 impl From<KeyData> for u64 {
     fn from(k: KeyData) -> Self {
         k.as_ffi()
@@ -157,6 +144,48 @@ impl Key for u64 {
         *self as usize
     }
 }
+
+impl From<KeyData> for u32 {
+    fn from(k: KeyData) -> Self {
+        k.idx
+    }
+}
+impl Key for u32 {
+    fn data(&self) -> KeyData {
+        KeyData::new(*self, 0)
+    }
+    fn index(&self) -> usize {
+        *self as usize
+    }
+}
+impl From<KeyData> for u16 {
+    fn from(k: KeyData) -> Self {
+        k.idx as u16
+    }
+}
+impl Key for u16 {
+    fn data(&self) -> KeyData {
+        KeyData::new(*self as u32, 0)
+    }
+    fn index(&self) -> usize {
+        *self as usize
+    }
+}
+
+impl From<KeyData> for u8 {
+    fn from(k: KeyData) -> Self {
+        k.idx as u8
+    }
+}
+impl Key for u8 {
+    fn data(&self) -> KeyData {
+        KeyData::new(*self as u32, 0)
+    }
+    fn index(&self) -> usize {
+        *self as usize
+    }
+}
+
 /// Returns if a is an older version than b, taking into account wrapping of
 /// versions.
 pub fn is_older_version(a: u32, b: u32) -> bool {
