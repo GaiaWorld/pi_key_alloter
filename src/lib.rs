@@ -115,7 +115,7 @@ From<KeyData>
     /// let mk = MyKey::null();
     /// assert_eq!(dk.data(), mk.data());
     /// ```
-    fn new(idx: usize) -> Self;
+    fn with(idx: usize) -> Self;
     fn data(&self) -> KeyData;
     fn index(&self) -> usize;
 }
@@ -125,7 +125,7 @@ impl From<KeyData> for usize {
     }
 }
 impl Key for usize {
-    fn new(idx: usize) -> Self {
+    fn with(idx: usize) -> Self {
         idx
     }
     fn data(&self) -> KeyData {
@@ -135,13 +135,29 @@ impl Key for usize {
         *self
     }
 }
+impl From<KeyData> for i64 {
+    fn from(k: KeyData) -> Self {
+        k.as_ffi() as i64
+    }
+}
+impl Key for i64 {
+    fn with(idx: usize) -> Self {
+        idx as i64
+    }
+    fn data(&self) -> KeyData {
+        KeyData::from_ffi(*self as u64)
+    }
+    fn index(&self) -> usize {
+        *self as usize
+    }
+}
 impl From<KeyData> for u64 {
     fn from(k: KeyData) -> Self {
         k.as_ffi()
     }
 }
 impl Key for u64 {
-    fn new(idx: usize) -> Self {
+    fn with(idx: usize) -> Self {
         idx as u64
     }
     fn data(&self) -> KeyData {
@@ -151,18 +167,49 @@ impl Key for u64 {
         *self as usize
     }
 }
-
+impl From<KeyData> for i32 {
+    fn from(k: KeyData) -> Self {
+        k.idx as i32
+    }
+}
+impl Key for i32 {
+    fn with(idx: usize) -> Self {
+        idx as i32
+    }
+    fn data(&self) -> KeyData {
+        KeyData::new(*self as u32, 0)
+    }
+    fn index(&self) -> usize {
+        *self as usize
+    }
+}
 impl From<KeyData> for u32 {
     fn from(k: KeyData) -> Self {
         k.idx
     }
 }
 impl Key for u32 {
-    fn new(idx: usize) -> Self {
+    fn with(idx: usize) -> Self {
         idx as u32
     }
     fn data(&self) -> KeyData {
         KeyData::new(*self, 0)
+    }
+    fn index(&self) -> usize {
+        *self as usize
+    }
+}
+impl From<KeyData> for i16 {
+    fn from(k: KeyData) -> Self {
+        k.idx as i16
+    }
+}
+impl Key for i16 {
+    fn with(idx: usize) -> Self {
+        idx as i16
+    }
+    fn data(&self) -> KeyData {
+        KeyData::new(*self as u32, 0)
     }
     fn index(&self) -> usize {
         *self as usize
@@ -174,8 +221,24 @@ impl From<KeyData> for u16 {
     }
 }
 impl Key for u16 {
-    fn new(idx: usize) -> Self {
+    fn with(idx: usize) -> Self {
         idx as u16
+    }
+    fn data(&self) -> KeyData {
+        KeyData::new(*self as u32, 0)
+    }
+    fn index(&self) -> usize {
+        *self as usize
+    }
+}
+impl From<KeyData> for i8 {
+    fn from(k: KeyData) -> Self {
+        k.idx as i8
+    }
+}
+impl Key for i8 {
+    fn with(idx: usize) -> Self {
+        idx as i8
     }
     fn data(&self) -> KeyData {
         KeyData::new(*self as u32, 0)
@@ -191,7 +254,7 @@ impl From<KeyData> for u8 {
     }
 }
 impl Key for u8 {
-    fn new(idx: usize) -> Self {
+    fn with(idx: usize) -> Self {
         idx as u8
     }
     fn data(&self) -> KeyData {
@@ -266,8 +329,9 @@ macro_rules! new_key_type {
             }
         }
         impl $crate::Key for $name {
-            fn new(idx: usize) -> Self {
-                $name($crate::KeyData::new(idx as u32, 0))
+            fn with(idx: usize) -> Self {
+                let idx = idx as u32;
+                $name($crate::KeyData{idx, version: 0})
             }
             fn data(&self) -> $crate::KeyData {
                 self.0
