@@ -330,8 +330,7 @@ macro_rules! new_key_type {
         }
         impl $crate::Key for $name {
             fn with(idx: usize) -> Self {
-                let idx = idx as u32;
-                $name($crate::KeyData{idx, version: 0})
+                $name(unsafe {$crate::key_data(idx as u32, 0)})
             }
             fn data(&self) -> $crate::KeyData {
                 self.0
