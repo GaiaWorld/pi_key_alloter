@@ -25,7 +25,7 @@ pub struct KeyData {
 }
 
 impl KeyData {
-    fn new(idx: u32, version: u32) -> Self {
+    pub fn new(idx: u32, version: u32) -> Self {
         Self { idx, version }
     }
 
