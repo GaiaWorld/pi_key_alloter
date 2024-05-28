@@ -491,7 +491,7 @@ impl KeyAlloter {
         self.max.load(Ordering::Relaxed)
     }
     /// 外部必须保证没有其他线程分配Key，整理，返回整理迭代器，迭代器返回(当前最大值, 空位)，外部可利用该信息进行数据交换，让分配的Key和Value连续
-    pub fn collect(&self, version_incr: u32) -> Drain {
+    pub fn settle(&self, version_incr: u32) -> Drain {
         let max = self.max.load(Ordering::Relaxed);
         Drain {
             max,
