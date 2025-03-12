@@ -1,6 +1,6 @@
 [package]
 name = "pi_key_alloter"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["suncy <530739162@qq.com>"]
 edition = "2021"
 description = "lock free Key(idx:u32, version:u32) alloter"
@@ -15,6 +15,6 @@ rc = []
 
 [dependencies]
 pi_null = "0.1"
-pi_share = "0.4"
+pi_share = "0.5"
 crossbeam = "0.8"
 serde = { version = "1.0", optional = true, default-features = false, features = ["derive", "alloc"] }
