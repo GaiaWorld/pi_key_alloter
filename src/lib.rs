@@ -25,13 +25,16 @@ pub struct KeyData {
 }
 
 impl KeyData {
+    #[inline(always)]
     fn new(idx: u32, version: u32) -> Self {
         Self { idx, version }
     }
 
+    #[inline(always)]
     pub fn index(&self) -> u32 {
         self.idx
     }
+    #[inline(always)]
     pub fn version(&self) -> u32 {
         self.version
     }
@@ -69,15 +72,18 @@ impl Default for KeyData {
     }
 }
 impl Null for KeyData {
+    #[inline(always)]
     fn null() -> Self {
         Self::new(u32::null(), 0)
     }
 
+    #[inline(always)]
     fn is_null(&self) -> bool {
         self.idx.is_null()
     }
 }
 
+#[inline(always)]
 pub unsafe fn key_data(idx: u32, version: u32) -> KeyData {
     KeyData::new(idx, version)
 }
@@ -120,113 +126,141 @@ From<KeyData>
     fn index(&self) -> usize;
 }
 impl From<KeyData> for usize {
+    #[inline(always)]
     fn from(k: KeyData) -> Self {
         k.idx as usize
     }
 }
 impl Key for usize {
+    #[inline(always)]
     fn with(idx: usize) -> Self {
         idx
     }
+    #[inline(always)]
     fn data(&self) -> KeyData {
         KeyData::new(*self as u32, 0)
     }
+    #[inline(always)]
     fn index(&self) -> usize {
         *self
     }
 }
 impl From<KeyData> for i64 {
+    #[inline(always)]
     fn from(k: KeyData) -> Self {
         k.as_ffi() as i64
     }
 }
 impl Key for i64 {
+    #[inline(always)]
     fn with(idx: usize) -> Self {
         idx as i64
     }
+    #[inline(always)]
     fn data(&self) -> KeyData {
         KeyData::from_ffi(*self as u64)
     }
+    #[inline(always)]
     fn index(&self) -> usize {
         *self as usize
     }
 }
 impl From<KeyData> for u64 {
+    #[inline(always)]
     fn from(k: KeyData) -> Self {
         k.as_ffi()
     }
 }
 impl Key for u64 {
+    #[inline(always)]
     fn with(idx: usize) -> Self {
         idx as u64
     }
+    #[inline(always)]
     fn data(&self) -> KeyData {
         KeyData::from_ffi(*self)
     }
+    #[inline(always)]
     fn index(&self) -> usize {
         *self as usize
     }
 }
 impl From<KeyData> for i32 {
+    #[inline(always)]
     fn from(k: KeyData) -> Self {
         k.idx as i32
     }
 }
 impl Key for i32 {
+    #[inline(always)]
     fn with(idx: usize) -> Self {
         idx as i32
     }
+    #[inline(always)]
     fn data(&self) -> KeyData {
         KeyData::new(*self as u32, 0)
     }
+    #[inline(always)]
     fn index(&self) -> usize {
         *self as usize
     }
 }
 impl From<KeyData> for u32 {
+    #[inline(always)]
     fn from(k: KeyData) -> Self {
         k.idx
     }
 }
 impl Key for u32 {
+    #[inline(always)]
     fn with(idx: usize) -> Self {
         idx as u32
     }
+    #[inline(always)]
     fn data(&self) -> KeyData {
         KeyData::new(*self, 0)
     }
+    #[inline(always)]
     fn index(&self) -> usize {
         *self as usize
     }
 }
 impl From<KeyData> for i16 {
+    #[inline(always)]
     fn from(k: KeyData) -> Self {
         k.idx as i16
     }
 }
 impl Key for i16 {
+    #[inline(always)]
     fn with(idx: usize) -> Self {
         idx as i16
     }
+    #[inline(always)]
     fn data(&self) -> KeyData {
         KeyData::new(*self as u32, 0)
     }
+    #[inline(always)]
     fn index(&self) -> usize {
         *self as usize
     }
 }
 impl From<KeyData> for u16 {
+    #[inline(always)]
     fn from(k: KeyData) -> Self {
         k.idx as u16
     }
 }
 impl Key for u16 {
+    #[inline(always)]
     fn with(idx: usize) -> Self {
         idx as u16
     }
+    #[inline(always)]
     fn data(&self) -> KeyData {
         KeyData::new(*self as u32, 0)
     }
+    #[inline(always)]
     fn index(&self) -> usize {
         *self as usize
     }
@@ -237,12 +271,15 @@ impl From<KeyData> for i8 {
     }
 }
 impl Key for i8 {
+    #[inline(always)]
     fn with(idx: usize) -> Self {
         idx as i8
     }
+    #[inline(always)]
     fn data(&self) -> KeyData {
         KeyData::new(*self as u32, 0)
     }
+    #[inline(always)]
     fn index(&self) -> usize {
         *self as usize
     }
@@ -254,12 +291,15 @@ impl From<KeyData> for u8 {
     }
 }
 impl Key for u8 {
+    #[inline(always)]
     fn with(idx: usize) -> Self {
         idx as u8
     }
+    #[inline(always)]
     fn data(&self) -> KeyData {
         KeyData::new(*self as u32, 0)
     }
+    #[inline(always)]
     fn index(&self) -> usize {
         *self as usize
     }
@@ -315,26 +355,32 @@ macro_rules! new_key_type {
 
 
         impl $crate::__impl::From<$crate::KeyData> for $name {
+            #[inline(always)]
             fn from(k: $crate::KeyData) -> Self {
                 $name(k)
             }
         }
         impl pi_null::Null for $name {
+            #[inline(always)]
             fn null() -> Self {
                 $crate::KeyData::null().into()
             }
 
+            #[inline(always)]
             fn is_null(&self) -> bool {
                 self.0.is_null()
             }
         }
         impl $crate::Key for $name {
+            #[inline(always)]
             fn with(idx: usize) -> Self {
                 $name(unsafe {$crate::key_data(idx as u32, 0)})
             }
+            #[inline(always)]
             fn data(&self) -> $crate::KeyData {
                 self.0
             }
+            #[inline(always)]
             fn index(&self) -> usize {
                 self.0.index() as usize
             }
