@@ -575,7 +575,7 @@ impl<'a> Iterator for Drain<'a> {
             if self.index != r.idx {
                 return Some((
                     self.index,
-                    KeyData::new(r.idx, r.version + self.version_incr),
+                    KeyData::new(r.idx, KeyAlloter::version_mask(r.version + version_incr)),
                 ));
             }
         }
