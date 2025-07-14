@@ -97,7 +97,7 @@ pub unsafe fn key_data(idx: u32, version: u32) -> KeyData {
 /// implement. It is strongly suggested to simply use [`new_key_type!`] instead
 /// of implementing this trait yourself.
 pub trait Key:
-From<KeyData>
+    From<KeyData>
     + Copy
     + Clone
     + Default
@@ -514,11 +514,22 @@ impl KeyAlloter {
     /// 否则，分配的Key值为`max`,并且`max`会自增1，并指定的版本初始值
     pub fn alloc(&self, version_incr: u32, version_init: u32) -> KeyData {
         match self.recycled.pop() {
-            Some(r) => KeyData::new(r.idx, r.version + version_incr),
+            Some(r) => KeyData::new(r.idx, Self::version_mask(r.version + version_incr)),
             None => KeyData::new(self.max.fetch_add(1, Ordering::Relaxed), version_init),
         }
     }
+    #[cfg(feature = "full_version")]
+    #[inline(always)]
+    fn version_mask(ver: u32) -> u32 {
+        ver
+    }
 
+    #[cfg(not(feature = "full_version"))]
+    #[inline(always)]
+    fn version_mask(ver: u32) -> u32 {
+        const VERSION_MASK: u32 = 1 << 23 - 1;
+        ver & VERSION_MASK
+    }
     /// 回收一个Key
     pub fn recycle(&self, key: KeyData) {
         self.recycled.push(key);
