@@ -1,6 +1,6 @@
 [package]
 name = "pi_key_alloter"
-version = "0.6.2"
+version = "0.6.3"
 authors = ["suncy <530739162@qq.com>"]
 edition = "2021"
 description = "lock free Key(idx:u32, version:u32) alloter"
@@ -11,9 +11,9 @@ readme = "README.md"
 
 
 [features]
-default = []
+default = ["bits21_version"]
 rc = []
-full_version = []
+bits21_version = []
 
 
 [dependencies]
