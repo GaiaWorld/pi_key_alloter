@@ -70,7 +70,7 @@ impl KeyData {
     #[cfg(feature = "bits21_version")]
     #[inline(always)]
     fn version_mask(ver: u32) -> u32 {
-        const VERSION_MASK: u32 = 1 << 21 - 1;
+        const VERSION_MASK: u32 = (1 << 21) - 1;
         ver & VERSION_MASK
     }
 }
