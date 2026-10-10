@@ -1,23 +1,19 @@
 [package]
-name = "pi_key_alloter"
-version = "0.6.4"
+name = "pi_key"
+version = "0.1.0"
 authors = ["suncy <530739162@qq.com>"]
 edition = "2021"
-description = "lock free Key(idx:u32, version:u32) alloter"
-repository = "https://github.com/GaiaWorld/pi_key_alloter.git"
+description = "Key(idx:u32, version:u32)"
+repository = "https://github.com/GaiaWorld/pi_key.git"
 license = "MIT OR Apache-2.0"
-keywords = ["pi", "lock_free", "key", "alloter"]
+keywords = ["pi", "key"]
 readme = "README.md"
 
 
 [features]
 default = ["bits21_version"]
-rc = []
 bits21_version = []
 
 
 [dependencies]
 pi_null = "0.1"
-pi_share = "0.5"
-crossbeam = "0.8"
-serde = { version = "1.0", optional = true, default-features = false, features = ["derive", "alloc"] }
