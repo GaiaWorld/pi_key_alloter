@@ -1,17 +1,35 @@
+//! 统一的索引键接口、带版本的键数据和类型安全的自定义键宏。
+//!
+//! 索引型整数键有意忽略版本；u64、i64 和宏生成的键保留版本。
+//! 默认使用 21 位版本，关闭默认 feature 后使用完整 32 位版本。
+//! 本库不负责槽位分配、回收，也不自动验证键是否仍然有效。
+
 use pi_null::Null;
 
-// So our macros can refer to these.
+// 截断与回绕比较共用位宽，避免回绕边界的判断方向颠倒。
+#[cfg(feature = "bits21_version")]
+const VERSION_BITS: u32 = 21;
+#[cfg(not(feature = "bits21_version"))]
+const VERSION_BITS: u32 = 32;
+const VERSION_MASK: u32 = u32::MAX >> (32 - VERSION_BITS);
+const VERSION_HALF_RANGE: u32 = 1 << (VERSION_BITS - 1);
+
+// 宏通过 $crate 访问这些重导出，不依赖调用方的导入或传递依赖路径。
 #[doc(hidden)]
 pub mod __impl {
     pub use core::convert::From;
     pub use core::result::Result;
+    pub use pi_null::Null;
 }
 
-/// The actual data stored in a [`Key`].
+/// [`Key`] 的底层数据：一个 `u32` 索引和按当前配置掩码后的版本。
 ///
-/// This implements [`Ord`](std::cmp::Ord) so keys can be stored in e.g.
-/// [`BTreeMap`](std::collections::BTreeMap), but the order of keys is
-/// unspecified.
+/// 索引 `u32::MAX` 表示空，与版本无关；规范空数据的版本为零。
+/// 版本零本身有效，不表示空或跳过版本校验。默认 feature `bits21_version`
+/// 使用 21 位版本，关闭默认 feature 后使用完整 32 位。
+///
+/// 实现 [`Ord`] 以支持 [`BTreeMap`](std::collections::BTreeMap)
+/// 等有序容器；该排序不是版本的时间先后，回绕比较应使用 [`is_older_version`]。
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct KeyData {
     idx: u32,
@@ -27,38 +45,37 @@ impl KeyData {
         }
     }
 
+    /// 返回原始索引；`u32::MAX` 表示空，不能用于访问容器。
     #[inline(always)]
     pub fn index(&self) -> u32 {
         self.idx
     }
+    /// 返回当前位宽内的版本；零也是有效版本。
     #[inline(always)]
     pub fn version(&self) -> u32 {
         self.version
     }
-    /// Returns the key data as a 64-bit integer. No guarantees about its value
-    /// are made other than that passing it to [`from_ffi`](Self::from_ffi)
-    /// will return a key equal to the original.
+    /// 打包为 `u64`：高 32 位为版本，低 32 位为索引。
+    ///
+    /// 同一位宽配置下，经 [`from_ffi`](Self::from_ffi) 可以无损还原，
+    /// 包括非规范空数据的版本。跨 feature 配置读取时，版本可能被截断。
+    /// 外部存储应使用此编码，而不是直接存储 `i64` 键的整数表示。
     pub fn as_ffi(self) -> u64 {
         (u64::from(self.version) << 32) | u64::from(self.idx)
     }
 
-    /// Iff `value` is a value received from `k.as_ffi()`, returns a key equal
-    /// to `k`. Otherwise the behavior is safe but unspecified.
+    /// 将低 32 位解码为索引，高 32 位解码为版本并按当前位宽掩码。
+    ///
+    /// 任意输入均可解码，但不保证键在消费者容器中有效，也不规范化空版本。
+    /// 跨 feature 配置不保证无损；`i64` 键可能使用转义编码，
+    /// 必须先经 [`Key::data`] 转为数据，不能直接将其整数值传入此方法。
     pub fn from_ffi(value: u64) -> Self {
         let idx = value & 0xffff_ffff;
-        let version = value >> 32; // Ensure version is odd.
+        let version = value >> 32;
         Self::new(idx as u32, version as u32)
     }
-    #[cfg(not(feature = "bits21_version"))]
     #[inline(always)]
     fn version_mask(ver: u32) -> u32 {
-        ver
-    }
-
-    #[cfg(feature = "bits21_version")]
-    #[inline(always)]
-    fn version_mask(ver: u32) -> u32 {
-        const VERSION_MASK: u32 = (1 << 21) - 1;
         ver & VERSION_MASK
     }
 }
@@ -86,19 +103,45 @@ impl Null for KeyData {
     }
 }
 
+/// 从原始索引和版本构造数据，版本按当前位宽掩码，不检查容器有效性。
+///
+/// `idx == u32::MAX` 表示空，但这里保留掩码后的版本，不强制规范化为零。
+///
+/// # Safety
+///
+/// 保留既有 `unsafe` 签名；本函数本身没有额外的内存安全前提。
+/// 业务有效性仍由消费者检查。若下游使用未经检查的索引执行不安全访问，
+/// 其内存安全前提由下游负责，本库不提供该保证。
 #[inline(always)]
 pub unsafe fn key_data(idx: u32, version: u32) -> KeyData {
     KeyData::new(idx, version)
 }
-/// it is suggested to have a unique key type for each slot
-/// map. You can create new key types using [`new_key_type!`], which makes a
-/// new type identical to [`DefaultKey`], just with a different name.
+/// 统一的索引键接口；它是安全 trait，不是对容器访问安全性的担保。
 ///
-/// This trait is intended to be a thin wrapper around [`KeyData`], and all
-/// methods must behave exactly as if we're operating on a [`KeyData`] directly.
-/// The internal unsafe code relies on this, therefore this trait is `unsafe` to
-/// implement. It is strongly suggested to simply use [`new_key_type!`] instead
-/// of implementing this trait yourself.
+/// 建议用 [`new_key_type!`] 为不同用途声明独立类型，避免混用。宏生成的键
+/// 与 [`DefaultKey`] 保存全部 [`KeyData`]，包括非规范空数据的版本。
+/// `u64`、`i64` 保存当前配置下有效非空键的索引和版本。
+/// 完整 32 位配置下，`i64` 将非空原始编码 `0x8000000000000000`
+/// 转义为 `0x00000000ffffffff`，避免与空哨兵 `i64::MIN` 冲突。
+///
+/// `usize/u32/i32/u16/i16/u8/i8` 有意只保存索引：`From<KeyData>`
+/// 丢弃版本，[`data`](Key::data) 返回版本零。这不表示免除版本校验；
+/// 索引键不能区分同一槽位的不同代，是否适用及容器语义由消费者决定。
+///
+/// 整数转换保持空性：空数据转为对应整数的 `pi_null::Null` 哨兵，
+/// 空整数的 `data()` 返回规范空数据，原空版本不保留。
+/// 有效非空键满足 `key.index() == key.data().index() as usize`。
+///
+/// # 索引范围
+///
+/// `with` 和非空 `From<KeyData>` 输入必须可表示且不与空值冲突。
+/// 所有索引均小于 `u32::MAX`，`usize` 在 64 位平台也受此上限约束。
+/// 有符号索引型整数还要求索引不超过该类型的 `MAX`；无符号索引型整数
+/// 还要求索引小于该类型的 `MAX`（保留为空）。例如 `i8` 为 `0..=127`，
+/// `u8` 为 `0..=254`。空数据的 `From<KeyData>` 不受这些范围限制。
+///
+/// 越界不检查、不新增 panic，仍使用 Rust 的 `as` 转换，可能截断、
+/// 变为负数或与空值冲突；这些输入不属于有效键契约。空键索引不得用于访问。
 pub trait Key:
     From<KeyData>
     + Copy
@@ -113,25 +156,35 @@ pub trait Key:
     + pi_null::Null
     + 'static
 {
-    /// Gets the [`KeyData`] stored in this key.
+    /// 从上述有效范围内的索引创建版本零的键，不进行范围检查。
     ///
-    /// # Examples
+    /// # 示例
     ///
     /// ```
     /// # use pi_key::*;
+    /// # use pi_null::Null;
     /// new_key_type! { struct MyKey; }
-    /// let dk = DefaultKey::null();
-    /// let mk = MyKey::null();
+    /// let dk = DefaultKey::with(7);
+    /// let mk = MyKey::with(7);
     /// assert_eq!(dk.data(), mk.data());
+    /// assert_eq!(mk.data().version(), 0);
+    /// assert!(MyKey::default().is_null());
     /// ```
     fn with(idx: usize) -> Self;
+    /// 返回底层数据；索引型整数使用版本零，空整数返回规范空数据。
+    /// 宏生成的键保留全部原始数据，`i64` 在此逆转特殊编码。
     fn data(&self) -> KeyData;
+    /// 返回访问索引；仅有效非空键可用于访问，调用者必须先检查空性及容器有效性。
     fn index(&self) -> usize;
 }
 impl From<KeyData> for usize {
     #[inline(always)]
     fn from(k: KeyData) -> Self {
-        k.idx as usize
+        if k.is_null() {
+            Self::null()
+        } else {
+            k.idx as usize
+        }
     }
 }
 impl Key for usize {
@@ -141,7 +194,11 @@ impl Key for usize {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        KeyData::new(*self as u32, 0)
+        if self.is_null() {
+            KeyData::null()
+        } else {
+            KeyData::new(*self as u32, 0)
+        }
     }
     #[inline(always)]
     fn index(&self) -> usize {
@@ -151,7 +208,17 @@ impl Key for usize {
 impl From<KeyData> for i64 {
     #[inline(always)]
     fn from(k: KeyData) -> Self {
-        k.as_ffi() as i64
+        if k.is_null() {
+            Self::null()
+        } else {
+            let packed = k.as_ffi() as i64;
+            // 将与空值哨兵冲突的有效编码转义到保留的空索引编码。
+            if packed == i64::null() {
+                u32::MAX as i64
+            } else {
+                packed
+            }
+        }
     }
 }
 impl Key for i64 {
@@ -161,17 +228,28 @@ impl Key for i64 {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        KeyData::from_ffi(*self as u64)
+        if self.is_null() {
+            KeyData::null()
+        } else if *self == u32::MAX as i64 {
+            // 逆转空索引编码的转义，还原索引 0、完整版本 0x80000000。
+            KeyData::from_ffi(i64::MIN as u64)
+        } else {
+            KeyData::from_ffi(*self as u64)
+        }
     }
     #[inline(always)]
     fn index(&self) -> usize {
-        *self as usize
+        self.data().index() as usize
     }
 }
 impl From<KeyData> for u64 {
     #[inline(always)]
     fn from(k: KeyData) -> Self {
-        k.as_ffi()
+        if k.is_null() {
+            Self::null()
+        } else {
+            k.as_ffi()
+        }
     }
 }
 impl Key for u64 {
@@ -181,17 +259,25 @@ impl Key for u64 {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        KeyData::from_ffi(*self)
+        if self.is_null() {
+            KeyData::null()
+        } else {
+            KeyData::from_ffi(*self)
+        }
     }
     #[inline(always)]
     fn index(&self) -> usize {
-        *self as usize
+        self.data().index() as usize
     }
 }
 impl From<KeyData> for i32 {
     #[inline(always)]
     fn from(k: KeyData) -> Self {
-        k.idx as i32
+        if k.is_null() {
+            Self::null()
+        } else {
+            k.idx as i32
+        }
     }
 }
 impl Key for i32 {
@@ -201,7 +287,11 @@ impl Key for i32 {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        KeyData::new(*self as u32, 0)
+        if self.is_null() {
+            KeyData::null()
+        } else {
+            KeyData::new(*self as u32, 0)
+        }
     }
     #[inline(always)]
     fn index(&self) -> usize {
@@ -211,7 +301,11 @@ impl Key for i32 {
 impl From<KeyData> for u32 {
     #[inline(always)]
     fn from(k: KeyData) -> Self {
-        k.idx
+        if k.is_null() {
+            Self::null()
+        } else {
+            k.idx
+        }
     }
 }
 impl Key for u32 {
@@ -221,7 +315,11 @@ impl Key for u32 {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        KeyData::new(*self, 0)
+        if self.is_null() {
+            KeyData::null()
+        } else {
+            KeyData::new(*self, 0)
+        }
     }
     #[inline(always)]
     fn index(&self) -> usize {
@@ -231,7 +329,11 @@ impl Key for u32 {
 impl From<KeyData> for i16 {
     #[inline(always)]
     fn from(k: KeyData) -> Self {
-        k.idx as i16
+        if k.is_null() {
+            Self::null()
+        } else {
+            k.idx as i16
+        }
     }
 }
 impl Key for i16 {
@@ -241,7 +343,11 @@ impl Key for i16 {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        KeyData::new(*self as u32, 0)
+        if self.is_null() {
+            KeyData::null()
+        } else {
+            KeyData::new(*self as u32, 0)
+        }
     }
     #[inline(always)]
     fn index(&self) -> usize {
@@ -251,7 +357,11 @@ impl Key for i16 {
 impl From<KeyData> for u16 {
     #[inline(always)]
     fn from(k: KeyData) -> Self {
-        k.idx as u16
+        if k.is_null() {
+            Self::null()
+        } else {
+            k.idx as u16
+        }
     }
 }
 impl Key for u16 {
@@ -261,7 +371,11 @@ impl Key for u16 {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        KeyData::new(*self as u32, 0)
+        if self.is_null() {
+            KeyData::null()
+        } else {
+            KeyData::new(*self as u32, 0)
+        }
     }
     #[inline(always)]
     fn index(&self) -> usize {
@@ -270,7 +384,11 @@ impl Key for u16 {
 }
 impl From<KeyData> for i8 {
     fn from(k: KeyData) -> Self {
-        k.idx as i8
+        if k.is_null() {
+            Self::null()
+        } else {
+            k.idx as i8
+        }
     }
 }
 impl Key for i8 {
@@ -280,7 +398,11 @@ impl Key for i8 {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        KeyData::new(*self as u32, 0)
+        if self.is_null() {
+            KeyData::null()
+        } else {
+            KeyData::new(*self as u32, 0)
+        }
     }
     #[inline(always)]
     fn index(&self) -> usize {
@@ -290,7 +412,11 @@ impl Key for i8 {
 
 impl From<KeyData> for u8 {
     fn from(k: KeyData) -> Self {
-        k.idx as u8
+        if k.is_null() {
+            Self::null()
+        } else {
+            k.idx as u8
+        }
     }
 }
 impl Key for u8 {
@@ -300,7 +426,11 @@ impl Key for u8 {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        KeyData::new(*self as u32, 0)
+        if self.is_null() {
+            KeyData::null()
+        } else {
+            KeyData::new(*self as u32, 0)
+        }
     }
     #[inline(always)]
     fn index(&self) -> usize {
@@ -308,35 +438,39 @@ impl Key for u8 {
     }
 }
 
-/// Returns if a is an older version than b, taking into account wrapping of
-/// versions.
+/// 判断版本 `a` 是否比 `b` 旧，支持当前版本位宽内的回绕。
+///
+/// 输入按当前位宽取模，使用模差 `(a - b) mod 2^位宽 > 半周期` 判断。
+/// 相等或恰好相隔半周期时，两个方向都返回 `false`。只有实际时间间隔
+/// 小于半周期时才能据此判断先后，长跨度无法判定；`u32::MAX` 无特殊哨兵语义。
 pub fn is_older_version(a: u32, b: u32) -> bool {
-    if b == u32::MAX {
-        return false;
-    }
-    let diff = a.wrapping_sub(b);
-    diff >= (1 << 31)
+    // 回绕减法后掩码，将差值限制在当前版本周期内。
+    let diff = a.wrapping_sub(b) & VERSION_MASK;
+    diff > VERSION_HALF_RANGE
 }
 
-/// A helper macro to create new key types. If you use a new key type for each
-/// slot map you create you can entirely prevent using the wrong key on the
-/// wrong slot map.
+/// 声明与 [`DefaultKey`] 行为相同、类型独立的键，保存全部 [`KeyData`]。
 ///
-/// The type constructed by this macro is defined exactly as [`DefaultKey`],
-/// but is a distinct type for the type checker and does not implicitly convert.
+/// 为不同容器用途声明独立类型可减少混用，但类型不验证实例归属或槽位有效性。
+/// 支持多个声明、可见性和属性；生成的类型之间不会隐式转换。
+/// 宏通过 `$crate::__impl` 和完全限定的 `Null` 调用展开，声明时无需
+/// 直接依赖或导入 `pi_null`。调用 `null()` / `is_null()` 则需直接依赖
+/// `pi_null` 并导入其 `Null` trait；`default()` 无此要求。
+/// 也可用 `Key::data().index() == u32::MAX` 检查空性。
 ///
-/// # Examples
+/// # 示例
 ///
 /// ```
 /// # use pi_key::*;
 /// new_key_type! {
-///     // A private key type.
+///     // 私有键类型。
 ///     struct RocketKey;
 ///
-///     // A public key type with a doc comment.
-///     /// Key for the user.
+///     // 带文档的公开键类型。
+///     /// 用户键。
 ///     pub struct UserKey;
 /// }
+/// assert_eq!(UserKey::default().data().index(), u32::MAX);
 ///
 /// ```
 #[macro_export(local_inner_macros)]
@@ -356,15 +490,15 @@ macro_rules! new_key_type {
                 $name(k)
             }
         }
-        impl pi_null::Null for $name {
+        impl $crate::__impl::Null for $name {
             #[inline(always)]
             fn null() -> Self {
-                $crate::KeyData::null().into()
+                <$crate::KeyData as $crate::__impl::Null>::null().into()
             }
 
             #[inline(always)]
             fn is_null(&self) -> bool {
-                self.0.is_null()
+                <$crate::KeyData as $crate::__impl::Null>::is_null(&self.0)
             }
         }
         impl $crate::Key for $name {
@@ -397,6 +531,6 @@ macro_rules! __serialize_key {
 }
 
 new_key_type! {
-    /// The default key type.
+    /// 默认的类型安全键，保存全部 [`KeyData`]；默认值为规范空键。
     pub struct DefaultKey;
 }
