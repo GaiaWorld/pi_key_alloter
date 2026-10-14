@@ -1,6 +1,6 @@
 [package]
 name = "pi_key"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["suncy <530739162@qq.com>"]
 edition = "2021"
 description = "Key(idx:u32, version:u32)"
@@ -16,4 +16,4 @@ bits21_version = []
 
 
 [dependencies]
-pi_null = "0.2.2"
+pi_null = "0.2"

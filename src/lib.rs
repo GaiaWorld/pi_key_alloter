@@ -245,11 +245,7 @@ impl Key for i64 {
 impl From<KeyData> for u64 {
     #[inline(always)]
     fn from(k: KeyData) -> Self {
-        if k.is_null() {
-            Self::null()
-        } else {
-            k.as_ffi()
-        }
+        k.as_ffi()
     }
 }
 impl Key for u64 {
@@ -259,11 +255,7 @@ impl Key for u64 {
     }
     #[inline(always)]
     fn data(&self) -> KeyData {
-        if self.is_null() {
-            KeyData::null()
-        } else {
-            KeyData::from_ffi(*self)
-        }
+        KeyData::from_ffi(*self)
     }
     #[inline(always)]
     fn index(&self) -> usize {
