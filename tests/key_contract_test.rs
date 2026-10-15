@@ -7,7 +7,20 @@ mod macro_without_null_import {
 }
 
 fn data(index: u32, version: u32) -> KeyData {
-    KeyData::from_ffi((u64::from(version) << 32) | u64::from(index))
+    KeyData::new(index, version)
+}
+
+#[test]
+fn constructor_preserves_full_version_and_noncanonical_null() {
+    let high_version = KeyData::new(7, u32::MAX);
+    assert_eq!(high_version.index(), 7);
+    assert_eq!(high_version.version(), u32::MAX);
+    assert_eq!(KeyData::from_ffi(high_version.as_ffi()), high_version);
+
+    let null = KeyData::new(u32::MAX, 0x8000_0000);
+    assert!(null.is_null());
+    assert_eq!(null.version(), 0x8000_0000);
+    assert_eq!(KeyData::from_ffi(null.as_ffi()), null);
 }
 
 macro_rules! index_only_tests {
@@ -57,6 +70,60 @@ fn integer_conversions_preserve_nullness() {
         };
     }
     check!(usize, u64, i64, u32, i32, u16, i16, u8, i8);
+    assert_eq!(u64::from(KeyData::null()), u64::null());
+    assert_eq!(u64::null().data(), KeyData::null());
+    assert_eq!(u64::from(data(u32::MAX, 42)), u64::null());
+    assert_eq!(u64::from(data(7, 42)).data(), data(7, 42));
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn serde_supports_key_data_and_macro_keys() {
+    use serde::de::value::{Error, MapDeserializer};
+    use serde::de::IntoDeserializer;
+    use serde::Deserialize;
+
+    let original = data(7, 42);
+    let decoded = KeyData::deserialize(MapDeserializer::<_, Error>::new(
+        [("idx", 7u32), ("version", 42u32)]
+            .into_iter()
+            .map(|(key, value)| (key.into_deserializer(), value.into_deserializer())),
+    ))
+    .unwrap();
+    assert_eq!(decoded, original);
+
+    fn assert_serializable<T: serde::Serialize + for<'a> serde::Deserialize<'a>>() {}
+    assert_serializable::<KeyData>();
+    assert_serializable::<macro_without_null_import::CustomKey>();
+    assert_serializable::<pi_key::DefaultKey>();
+}
+
+#[cfg(feature = "fory")]
+#[test]
+fn fory_round_trips_key_data_and_macro_keys() {
+    use macro_without_null_import::CustomKey;
+    use pi_key::DefaultKey;
+
+    let mut codec = fory::Fory::builder().xlang(false).build();
+    codec.register::<KeyData>(100).unwrap();
+    codec.register_serializer::<CustomKey>(101).unwrap();
+    codec.register_serializer::<DefaultKey>(102).unwrap();
+
+    for original in [data(7, 42), data(u32::MAX, 42)] {
+        let bytes = codec.serialize(&original).unwrap();
+        let decoded: KeyData = codec.deserialize(&bytes).unwrap();
+        assert_eq!(decoded, original);
+
+        let key = CustomKey::from(original);
+        let bytes = codec.serialize(&key).unwrap();
+        let decoded: CustomKey = codec.deserialize(&bytes).unwrap();
+        assert_eq!(decoded.data(), original);
+
+        let key = DefaultKey::from(original);
+        let bytes = codec.serialize(&key).unwrap();
+        let decoded: DefaultKey = codec.deserialize(&bytes).unwrap();
+        assert_eq!(decoded.data(), original);
+    }
 }
 
 #[test]
@@ -94,14 +161,9 @@ fn macro_key_preserves_data_without_null_trait_import() {
     assert!(CustomKey::null().is_null());
 }
 
-#[cfg(feature = "bits21_version")]
-const VERSION_BITS: u32 = 21;
-#[cfg(not(feature = "bits21_version"))]
-const VERSION_BITS: u32 = 32;
-
 #[test]
 fn compares_versions_across_wrap() {
-    let last = u32::MAX >> (32 - VERSION_BITS);
+    let last = u32::MAX;
     let wrapped = data(0, last.wrapping_add(1)).version();
     assert_eq!(wrapped, 0);
     assert!(is_older_version(last, wrapped));
@@ -112,7 +174,7 @@ fn compares_versions_across_wrap() {
 
 #[test]
 fn equal_and_half_cycle_versions_are_not_ordered() {
-    let half = 1u32 << (VERSION_BITS - 1);
+    let half = 1u32 << 31;
     assert!(!is_older_version(7, 7));
     assert!(!is_older_version(0, half));
     assert!(!is_older_version(half, 0));
@@ -121,9 +183,8 @@ fn equal_and_half_cycle_versions_are_not_ordered() {
 }
 
 #[test]
-fn version_comparison_masks_inputs_to_configured_width() {
-    assert_eq!(
-        is_older_version(u32::MAX, 0),
-        is_older_version(data(0, u32::MAX).version(), 0)
-    );
+fn comparison_uses_all_version_bits() {
+    assert_eq!(data(0, u32::MAX).version(), u32::MAX);
+    assert!(is_older_version(u32::MAX, 0));
+    assert!(!is_older_version(0, u32::MAX));
 }

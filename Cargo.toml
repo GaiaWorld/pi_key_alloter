@@ -1,6 +1,6 @@
 [package]
 name = "pi_key"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["suncy <530739162@qq.com>"]
 edition = "2021"
 description = "Key(idx:u32, version:u32)"
@@ -11,9 +11,11 @@ readme = "README.md"
 
 
 [features]
-default = ["bits21_version"]
-bits21_version = []
+serde = ["dep:serde"]
+fory = ["dep:fory"]
 
 
 [dependencies]
 pi_null = "0.2"
+serde = { version = "1", features = ["derive"], optional = true }
+fory = { version = "1.7.7", optional = true }
