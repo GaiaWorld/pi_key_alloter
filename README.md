@@ -4,9 +4,9 @@
 
 ## 数据与版本
 
-`KeyData` 包含 `u32` 索引和完整的 `u32` 版本。索引 `u32::MAX` 表示空，与版本无关；规范空数据为 `(u32::MAX, 0)`。版本零本身有效，不代表空，也不代表免版本校验。`Default` 返回规范空数据。
+`KeyData` 包含 `u32` 索引和完整的 `u32` 版本。仅索引和版本均为 `u32::MAX` 时表示空，空数据为 `(u32::MAX, u32::MAX)`。版本零本身有效，不代表空，也不代表免版本校验。`Default` 返回规范空数据。
 
-`KeyData::new(idx, version)` 完整保留版本，包括空索引的非零版本，不检查容器有效性。`KeyData::as_ffi()` 的原始 `u64` 编码为高 32 位版本、低 32 位索引。`from_ffi()` 可无损还原，不规范化空版本。`Ord` 用于有序容器，不表示版本的时间先后。
+`KeyData::new(idx, version)` 完整保留版本，包括索引为 `u32::MAX` 时的任意版本，不检查容器有效性。`KeyData::as_ffi()` 的原始 `u64` 编码为高 32 位版本、低 32 位索引。`from_ffi()` 可无损还原，不规范化空版本。`Ord` 用于有序容器，不表示版本的时间先后。
 
 ```rust
 use pi_key::KeyData;
@@ -22,7 +22,7 @@ assert_eq!(KeyData::from_ffi(data.as_ffi()), data);
 `serde` 和 `fory` 均默认关闭；不开启对应 feature 时不会引入该依赖。可按需启用：
 
 ```toml
-pi_key = { version = "0.3", features = ["serde", "fory"] }
+pi_key = { version = "0.4", features = ["serde", "fory"] }
 ```
 
 两种 feature 都支持 `KeyData`、`DefaultKey` 和 `new_key_type!` 生成的键。Fory 中注册 `KeyData` 使用 `register::<KeyData>(id)`；注册宏生成的键使用 `register_serializer::<MyKey>(id)`，避免跨 crate 派生索引冲突。Fory 1.7.7 在 32 位 x86 Windows 上编译失败，启用此 feature 时需要支持的目标平台。
@@ -31,7 +31,7 @@ pi_key = { version = "0.3", features = ["serde", "fory"] }
 
 | 类型 | 保存内容 | `data()` 与空值行为 |
 | --- | --- | --- |
-| `DefaultKey`、`new_key_type!` 生成的类型 | 全部 `KeyData` | 保留原数据，包括非规范空版本 |
+| `DefaultKey`、`new_key_type!` 生成的类型 | 全部 `KeyData` | 保留原数据，包括全部原始字段 |
 | `u64`、`i64` | 有效非空键的索引和版本 | 空整数返回规范空数据；`i64` 逆转特殊编码 |
 | `usize/u32/i32/u16/i16/u8/i8` | 仅索引 | `From<KeyData>` 丢弃版本，`data()` 版本为零；空整数返回规范空数据 |
 
@@ -66,7 +66,7 @@ assert_eq!(index_only.data().version(), 0);
 
 ## 空值与 i64 转义
 
-空值依赖 `pi_null::Null`：无符号整数使用该类型 `MAX`，有符号整数使用该类型 `MIN`。空 `KeyData` 转为整数时返回对应哨兵，原空版本不保留；空整数经 `data()` 返回规范空数据。`KeyData::as_ffi()` 仍保留原始字段编码，若要转成 `u64` 空键，应使用 `u64::from(data)`；反向应使用 `u64` 的 `Key::data()`。宏生成的键则保存原空数据。
+空值依赖 `pi_null::Null`：无符号整数使用该类型 `MAX`，有符号整数使用该类型 `MIN`。空 `KeyData` 转为整数时返回对应哨兵；空整数经 `data()` 返回 `(u32::MAX, u32::MAX)`。`u64::from(data)` 等同于 `data.as_ffi()`，完整保留所有字段，并与 `KeyData::from_ffi()` 无损往返。`(u32::MAX, 其他版本)` 不再为空，但仍不属于可用于容器访问的有效索引范围。宏生成的键也完整保留原始字段。
 
 索引 `0`、版本 `0x80000000` 的原始 FFI 编码为 `0x8000000000000000`，按 `i64` 解释恰好是空哨兵 `i64::MIN`。为保持有效非空键，`From<KeyData> for i64` 将它转义为 `u32::MAX as i64`，即 `0x00000000ffffffff`；`i64::data()` 逆转此编码。
 
@@ -91,7 +91,7 @@ assert_eq!(key.data().version(), 0);
 assert_eq!(RocketKey::default().data().index(), u32::MAX);
 ```
 
-宏通过 `$crate::__impl` 重导出与完全限定的 `Null` 调用展开。仅声明类型无需直接依赖或导入 `pi_null`；`default()` 也无需它。可以用 `Key::data().index() == u32::MAX` 检查空性。
+宏通过 `$crate::__impl` 重导出与完全限定的 `Null` 调用展开。仅声明类型无需直接依赖或导入 `pi_null`；`default()` 也无需它。可以用 `Key::data() == KeyData::default()` 检查空性。
 
 若调用 `null()` / `is_null()`，调用方需直接添加 `pi_null = "0.2.2"` 依赖并导入 trait：
 
@@ -101,7 +101,7 @@ use pi_null::Null;
 
 let key = DefaultKey::null();
 assert!(key.is_null());
-assert_eq!(key.data().version(), 0);
+assert_eq!(key.data().version(), u32::MAX);
 ```
 
 ## 版本回绕比较

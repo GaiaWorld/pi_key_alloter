@@ -11,14 +11,18 @@ fn data(index: u32, version: u32) -> KeyData {
 }
 
 #[test]
-fn constructor_preserves_full_version_and_noncanonical_null() {
+fn constructor_preserves_full_version_and_requires_both_null_fields() {
     let high_version = KeyData::new(7, u32::MAX);
     assert_eq!(high_version.index(), 7);
     assert_eq!(high_version.version(), u32::MAX);
     assert_eq!(KeyData::from_ffi(high_version.as_ffi()), high_version);
 
     let null = KeyData::new(u32::MAX, 0x8000_0000);
-    assert!(null.is_null());
+    assert!(!null.is_null());
+    assert!(!data(0, u32::MAX).is_null());
+    assert!(!data(u32::MAX, 0).is_null());
+    assert!(data(u32::MAX, u32::MAX).is_null());
+    assert_eq!(KeyData::default(), data(u32::MAX, u32::MAX));
     assert_eq!(null.version(), 0x8000_0000);
     assert_eq!(KeyData::from_ffi(null.as_ffi()), null);
 }
@@ -64,7 +68,6 @@ fn integer_conversions_preserve_nullness() {
     macro_rules! check {
         ($($ty:ty),*) => {
             $(assert!(<$ty>::from(KeyData::null()).is_null());
-              assert!(<$ty>::from(data(u32::MAX, 42)).is_null());
               assert_eq!(<$ty>::null().data(), KeyData::null());
               assert!(!<$ty>::from(data(0, 0)).is_null());)*
         };
@@ -72,7 +75,13 @@ fn integer_conversions_preserve_nullness() {
     check!(usize, u64, i64, u32, i32, u16, i16, u8, i8);
     assert_eq!(u64::from(KeyData::null()), u64::null());
     assert_eq!(u64::null().data(), KeyData::null());
-    assert_eq!(u64::from(data(u32::MAX, 42)), u64::null());
+    for version in [0, 42, 0x8000_0000, u32::MAX] {
+        let original = data(u32::MAX, version);
+        let packed = u64::from(original);
+        assert_eq!(packed, original.as_ffi());
+        assert_eq!(packed.is_null(), original.is_null());
+        assert_eq!(packed.data(), original);
+    }
     assert_eq!(u64::from(data(7, 42)).data(), data(7, 42));
 }
 
